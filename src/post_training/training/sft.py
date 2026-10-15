@@ -27,7 +27,9 @@ class TrainingResult:
     training_loss: float
 
 
-def run_sft(config: SFTJobConfig, run_dir: str | Path) -> TrainingResult:
+def run_sft(config: SFTJobConfig, run_dir: str | Path,
+            examples: list[tuple[str, str]] | None = None,
+            validation_examples: list[tuple[str, str]] | None = None) -> TrainingResult:
     # Lazy imports let config/CLI inspection work without the GPU dependencies.
     import torch
     from datasets import Dataset
@@ -53,12 +55,19 @@ def run_sft(config: SFTJobConfig, run_dir: str | Path) -> TrainingResult:
         tokenizer.pad_token = tokenizer.eos_token
     tokenizer.padding_side = "right"
 
-    dataset = Dataset.from_list([
-        {"prompt": format_prompt(question), "completion": " " + answer + tokenizer.eos_token}
-        for question, answer in MINI_QA
-    ])
-    # Refuse silent truncation of this smoke dataset.
-    for row in dataset:
+    examples = MINI_QA if examples is None else examples
+    if not examples:
+        raise ValueError("Training dataset is empty")
+    def make_dataset(pairs):
+        return Dataset.from_list([
+            {"prompt": format_prompt(question), "completion": " " + answer + tokenizer.eos_token}
+            for question, answer in pairs
+        ])
+
+    dataset = make_dataset(examples)
+    validation_dataset = make_dataset(validation_examples) if validation_examples else None
+    # Refuse silent truncation, including evaluation data.
+    for row in list(dataset) + (list(validation_dataset) if validation_dataset is not None else []):
         ids = tokenizer(row["prompt"] + row["completion"], add_special_tokens=False)["input_ids"]
         if len(ids) > config.max_length:
             raise ValueError("max_length would truncate a training example")
@@ -99,12 +108,16 @@ def run_sft(config: SFTJobConfig, run_dir: str | Path) -> TrainingResult:
         data_seed=config.seed,
         logging_steps=1,
         save_strategy="steps",
-        save_steps=config.save_steps,
+        save_steps=config.save_steps if len(examples) <= 4 else max(config.save_steps, 100),
         save_total_limit=2,
         report_to="none",
     )
-    trainer = SFTTrainer(model=model, args=args, train_dataset=dataset, processing_class=tokenizer)
+    trainer = SFTTrainer(model=model, args=args, train_dataset=dataset,
+                         eval_dataset=validation_dataset, processing_class=tokenizer)
     output = trainer.train()
+    if validation_dataset is not None:
+        validation_metrics = trainer.evaluate()
+        (run_dir / "validation.json").write_text(json.dumps(validation_metrics, indent=2) + "\n")
     adapter_dir = run_dir / "adapter"
     trainer.save_model(str(adapter_dir))
     tokenizer.save_pretrained(str(adapter_dir))
