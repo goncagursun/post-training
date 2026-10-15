@@ -5,7 +5,7 @@ from fastapi import Depends, FastAPI, HTTPException
 from fastapi.security import APIKeyHeader
 
 from post_training.auth import authenticate_key
-from post_training.control_plane import JobResponse, TrainingRequest, create_queued_job, get_owned_job
+from post_training.control_plane import JobResponse, TrainingRequest, create_queued_job, get_owned_job, request_cancellation
 from post_training.database import make_engine, make_session_factory
 
 
@@ -49,6 +49,14 @@ def create_app(session_factory=None):
     def job_status(job_id: str, tenant_id=Depends(authenticated_tenant),
                    session=Depends(database_session)):
         job = get_owned_job(session, tenant_id, job_id)
+        if job is None:
+            raise HTTPException(status_code=404, detail="Job not found")
+        return job
+
+    @app.post("/training/jobs/{job_id}/cancel", response_model=JobResponse, status_code=202)
+    def cancel_job(job_id: str, tenant_id=Depends(authenticated_tenant),
+                   session=Depends(database_session)):
+        job = request_cancellation(session, tenant_id, job_id)
         if job is None:
             raise HTTPException(status_code=404, detail="Job not found")
         return job

@@ -29,6 +29,13 @@ class ExecutionResponse(BaseModel):
     error: str | None
 
 
+class RecoveryResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    attempt: int
+    checkpoint: str
+    history: list[dict]
+
+
 class JobResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     id: str
@@ -38,6 +45,7 @@ class JobResponse(BaseModel):
     status: str
     created_at: datetime
     execution: ExecutionResponse | None = None
+    recovery: RecoveryResponse | None = None
 
 
 def create_queued_job(session, tenant_id, request):
@@ -58,3 +66,18 @@ def create_queued_job(session, tenant_id, request):
 
 def get_owned_job(session, tenant_id, job_id):
     return session.scalar(select(Job).where(Job.id == job_id, Job.tenant_id == tenant_id))
+
+
+def request_cancellation(session, tenant_id, job_id):
+    job = session.scalar(select(Job).where(Job.id == job_id, Job.tenant_id == tenant_id)
+                         .with_for_update())
+    if job is None:
+        return None
+    if job.status == "QUEUED":
+        job.status = "CANCELLED"
+    elif job.status in {"CLAIMED", "RUNNING"}:
+        job.status = "CANCEL_REQUESTED"
+    # Repeated requests and terminal jobs are idempotent; terminal outcomes persist.
+    session.commit()
+    session.refresh(job)
+    return job

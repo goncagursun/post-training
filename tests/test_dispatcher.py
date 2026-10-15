@@ -109,6 +109,13 @@ def test_real_ray_two_tenants(platform,tmp_path):
             with sessions() as session:
                 execution=session.get(JobExecution,claimed['job_id'])
                 assert execution.result['global_step']==2
+                telemetry=execution.result['telemetry']
+                assert telemetry['status']=='SUCCEEDED'
+                assert telemetry['context']['tenant_id']==claimed['tenant_id']
+                assert telemetry['training']['input_tokens']>0
+                assert telemetry['cuda_peak_allocated_bytes'] is None
+                assert execution.result['platform_metrics']['cost']['gpu_seconds']==0
+                assert (Path(execution.run_dir)/'events.jsonl').exists()
                 adapter=Path(execution.result['adapter_dir'])
                 assert (adapter/'adapter_model.safetensors').is_file()
                 assert claimed['tenant_id'] in adapter.parts
