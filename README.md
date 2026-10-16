@@ -111,3 +111,43 @@ per-GPU utilization, VRAM, temperature, power, tenant reservations, and allocati
 cost, including unreserved time between jobs. Job telemetry also records training
 samples/second and tokens/second. Whole-device measurements retain their scope;
 this is single-slot attribution, not process-level GPU isolation.
+
+## Scenario 2: independent concurrency
+
+[Independent concurrent training](docs/independent_concurrency.md) is a separate
+benchmark runner for two LoRA workers sharing one GPU with separate base-model
+copies. It reuses the FIFO recipes and datasets, verifies overlapping training,
+and saves separate measurements without changing the FIFO dispatcher or results.
+
+## Scenario 3: shared frozen base
+
+[Shared-base interleaved training](docs/shared_base.md) uses one model allocation,
+two isolated adapters/optimizers, and round-robin tenant updates. It is a separate
+proof of concept with its own outputs and integrity checks; it preserves both
+previous scenarios and does not claim simultaneous GPU kernel execution.
+
+## Controlled comparison
+
+[The controlled benchmark](docs/controlled_benchmark.md) runs solo A, FIFO,
+independent concurrency, and shared-base interleaving through one update engine,
+with pinned inputs, matched measurement windows, and a solo/shared weight-and-logit
+isolation gate. The earlier scenarios remain exploratory results.
+
+## Repeated concurrency sweep
+
+[The concurrency sweep](docs/concurrency_sweep.md) tests N=1,2,4,8 independent jobs
+with randomized repeats, matched solo adapters, fixed CPU threads, per-tenant
+slowdown, overlap-window throughput, GPU VRAM, and container CPU/RAM measurements.
+Its initial 500-update screening workload is separate from the earlier runs.
+
+## Batch-size counterfactual
+
+[The batch-size counterfactual](docs/batch_counterfactual.md) tests one job with
+larger physical batches on the same examples, reporting both throughput and
+held-out quality. The historical concurrency scenarios remain available.
+
+## Batching with concurrent tenants
+
+[The batch/concurrency matrix](docs/batch_concurrency.md) tests physical batches
+four and eight at N=1,2,4,8, with fresh batch-one endpoint controls, synchronized
+training starts, exact per-tenant solo comparisons, and full held-out evaluation.
