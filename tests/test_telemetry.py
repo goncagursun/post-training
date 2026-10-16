@@ -43,10 +43,18 @@ def test_gpu_sampler_parses_device_metrics(tmp_path,monkeypatch):
     def query(command,**kwargs):
         assert '--id=GPU-test' in command
         sampler.stop_event.set()
-        return subprocess.CompletedProcess(command,0,'70, 256\n','')
+        return subprocess.CompletedProcess(command,0,'70, 256, 46068, 42, 80\n','')
     monkeypatch.setattr('post_training.telemetry.subprocess.run',query)
     sampler.start()
     sampler.thread.join()
     metrics=sampler.stop()
     assert metrics['mean_utilization_percent']==70
     assert metrics['max_device_memory_used_bytes']==256*1024**2
+
+    assert metrics['max_temperature_celsius']==42
+    assert metrics['mean_power_watts']==80
+
+
+def test_torch_uuid_normalized_for_nvidia_smi(tmp_path):
+    sampler=NvidiaSampler(RunTelemetry(tmp_path),'f3732e67-929a-7213-62ef-fdac11dc1284')
+    assert sampler.uuid=='GPU-f3732e67-929a-7213-62ef-fdac11dc1284'

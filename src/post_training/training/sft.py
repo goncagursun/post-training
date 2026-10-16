@@ -109,6 +109,7 @@ def _run_sft(config: SFTJobConfig, run_dir: str | Path,
         supervised_tokens = 0
 
         def training_step(self, model, inputs, *args, **kwargs):
+            self.samples_observed = getattr(self, "samples_observed", 0) + inputs["input_ids"].shape[0]
             self.input_tokens += inputs["attention_mask"].sum().detach()
             self.supervised_tokens += (inputs["labels"][:, 1:] != -100).sum().detach()
             return super().training_step(model, inputs, *args, **kwargs)
@@ -178,6 +179,8 @@ def _run_sft(config: SFTJobConfig, run_dir: str | Path,
         "observed_optimizer_steps": observed_steps,
         "optimizer_steps": trainer.state.global_step,
         "input_tokens": input_tokens, "supervised_tokens": supervised_tokens,
+        "samples": getattr(trainer, "samples_observed", 0),
+        "samples_per_second": getattr(trainer, "samples_observed", 0) / training_seconds,
         "input_tokens_per_second": input_tokens / training_seconds,
         "supervised_tokens_per_second": supervised_tokens / training_seconds,
         "optimizer_steps_per_second": observed_steps / training_seconds,

@@ -82,6 +82,9 @@ class NvidiaSampler:
     def __init__(self, recorder, uuid, interval=1.0):
         self.recorder = recorder
         self.uuid = str(uuid) if uuid else None
+        # PyTorch may expose the UUID without NVIDIA's GPU- prefix.
+        if self.uuid and not self.uuid.startswith(("GPU-", "MIG-")):
+            self.uuid = "GPU-" + self.uuid
         self.interval = interval
         self.stop_event = threading.Event()
         self.thread = None
@@ -99,10 +102,19 @@ class NvidiaSampler:
             try:
                 output = subprocess.run([
                     "nvidia-smi", f"--id={self.uuid}",
-                    "--query-gpu=utilization.gpu,memory.used", "--format=csv,noheader,nounits"
+                    "--query-gpu=utilization.gpu,memory.used,memory.total,temperature.gpu,power.draw", "--format=csv,noheader,nounits"
                 ], capture_output=True, text=True, timeout=3, check=True)
-                util, memory = [float(value.strip()) for value in output.stdout.strip().split(",")]
-                sample = {"gpu_utilization_percent": util, "device_memory_used_bytes": int(memory * 1024**2)}
+                values = output.stdout.strip().split(",")
+                def number(value):
+                    try:
+                        return float(value.strip())
+                    except ValueError:
+                        return None
+                util, memory, total, temperature, power = map(number, values)
+                sample = {"gpu_uuid": self.uuid, "gpu_utilization_percent": util,
+                          "device_memory_used_bytes": int(memory * 1024**2) if memory is not None else None,
+                          "device_memory_total_bytes": int(total * 1024**2) if total is not None else None,
+                          "temperature_celsius": temperature, "power_watts": power}
                 self.samples.append(sample)
                 self.recorder.event("gpu_sample", **sample)
                 self.status = "available"
@@ -115,11 +127,19 @@ class NvidiaSampler:
         self.stop_event.set()
         if self.thread:
             self.thread.join(timeout=4)
+        def values(key):
+            return [sample[key] for sample in self.samples if sample[key] is not None]
+
+        def mean(key):
+            observed = values(key)
+            return sum(observed) / len(observed) if observed else None
+
         return {"status": self.status, "sample_count": len(self.samples),
                 "scope": "whole device; includes other processes",
+                "gpu_uuid": self.uuid,
                 "interval_seconds": self.interval,
-                "mean_utilization_percent": (
-                    sum(s["gpu_utilization_percent"] for s in self.samples)/len(self.samples)
-                    if self.samples else None),
-                "max_device_memory_used_bytes": (
-                    max(s["device_memory_used_bytes"] for s in self.samples) if self.samples else None)}
+                "mean_utilization_percent": mean("gpu_utilization_percent"),
+                "max_device_memory_used_bytes": max(values("device_memory_used_bytes"), default=None),
+                "device_memory_total_bytes": max(values("device_memory_total_bytes"), default=None),
+                "max_temperature_celsius": max(values("temperature_celsius"), default=None),
+                "mean_power_watts": mean("power_watts")}

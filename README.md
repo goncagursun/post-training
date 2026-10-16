@@ -103,3 +103,11 @@ This verifies artifact loading and generation, not held-out quality or improveme
 
 See [the Bitext quickstart](docs/bitext_quickstart.md) for separate tenant datasets,
 registration, SFT jobs, held-out loss, and base-versus-adapter accuracy evaluation.
+
+## GPU monitoring across tenant jobs
+
+See [GPU monitoring](docs/gpu_monitoring.md) for an independent monitor that records
+per-GPU utilization, VRAM, temperature, power, tenant reservations, and allocation
+cost, including unreserved time between jobs. Job telemetry also records training
+samples/second and tokens/second. Whole-device measurements retain their scope;
+this is single-slot attribution, not process-level GPU isolation.
